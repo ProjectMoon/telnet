@@ -1,0 +1,5 @@
+[package]
+
+name = "telnet"
+version = "0.0.1"
+authors = ["jeff <jeff@greenqloud.com>"]
