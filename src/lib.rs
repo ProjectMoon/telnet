@@ -1,7 +1,7 @@
 use std::io::{TcpListener, TcpStream, BufferedReader, BufferedWriter};
 use std::io::{Acceptor, Listener};
 use std::thread::Thread;
-use std::str;
+use std::sync::Arc;
 
 pub struct Telnet {
     pub address: String,
@@ -10,40 +10,42 @@ pub struct Telnet {
     //writer: BufferedWriter<TcpStream>,
 }
 
-fn handle_connect(stream: TcpStream) {
-    let mut reader = BufferedReader::new(stream.clone());
-    let mut writer = BufferedWriter::new(stream.clone());
-    loop {
-        let mut raw_input = reader.read_line().unwrap();
-        raw_input.pop();
-        println!("got {}", raw_input);
-        writer.write_line(raw_input.as_slice());
-        writer.flush();
-    }
-}
-
-
 impl Telnet {
-    pub fn listen(&self) {
+    pub fn listen<H: Handler>(&self, handler: H)  {
         let listener = TcpListener::bind("127.0.0.1:3000").unwrap();
         
-        // bind the listener to the specified address
         let mut acceptor = listener.listen().unwrap();
-
-        // accept connections and process them, spawning a new tasks for each one
+        let handler_arc = Arc::new(handler);
+        
         for stream in acceptor.incoming() {
             match stream {
                 Err(e) => {  }
                 Ok(stream) => {
+                    let local_handler = handler_arc.clone();
                     Thread::spawn(move|| {
-                        // connection succeeded
-                        handle_connect(stream)
+                        let mut reader = BufferedReader::new(stream.clone());
+                        let mut writer = BufferedWriter::new(stream.clone());
+                        
+                        loop {
+                            let mut raw_input = reader.read_line().unwrap();
+                            raw_input.pop();
+                            local_handler.handle(&mut raw_input, &mut writer);
+                        }
                     });
                 }
             }
         }
-
-        // close the socket server
+        
         drop(acceptor);
+    }
+}
+
+pub trait Handler: Sync + Send {
+    fn handle(&self, &mut String, &mut BufferedWriter<TcpStream>);
+}
+
+impl<F> Handler for F where F: Fn(&mut String, &mut BufferedWriter<TcpStream>), F: Sync + Send {
+    fn handle(&self, input: &mut String, writer: &mut BufferedWriter<TcpStream>) {
+        (*self)(input, writer);
     }
 }
